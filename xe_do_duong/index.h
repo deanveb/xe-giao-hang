@@ -1,3 +1,4 @@
+const char html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -257,9 +258,9 @@
       <input type="submit" value="BẮT ĐẦU">
     </form>
     
-    <!-- <div id="additional-destinations" class="flex items-center justify-center w-fit h-fit border rounded-md space-y-4 mx-auto p-1">
+    <div id="additional-destinations" class="flex items-center justify-center w-fit h-fit border rounded-md space-y-4 mx-auto p-1">
       <button type="button" onclick="addDestination()" class="mt-0">Thêm điểm đến</button>
-    </div> -->
+    </div>
     
     <div class="progress-container">
       <label>Tiến trình vận chuyển</label>
@@ -303,3 +304,4 @@
   </script>
 </body>
 </html>
+)rawliteral";
