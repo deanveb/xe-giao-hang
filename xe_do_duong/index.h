@@ -230,7 +230,7 @@ const char html[] PROGMEM = R"rawliteral(
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">16</div>
+      <div class="logo">🚙</div>
       <h1>HỆ THỐNG ĐỊNH TUYẾN XE DÒ ĐƯỜNG</h1>
     </div>
     
