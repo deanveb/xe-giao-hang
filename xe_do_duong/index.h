@@ -238,9 +238,9 @@ const char html[] PROGMEM = R"rawliteral(
       <div>
         <label for="from">Điểm xuất phát</label>
         <select name="from" id="from" class="text-center">
-          <option value='{"pos0":6,"pos1":1}'>Xưởng A</option>
-          <option value='{"pos0":6,"pos1":6}'>Xưởng B</option>
-          <option value='{"pos0":1,"pos1":6}'>Xưởng C</option>
+          <option value='{"pos0":"6","pos1":"1"}'>Xưởng A</option>
+          <option value='{"pos0":"6","pos1":"6"}'>Xưởng B</option>
+          <option value='{"pos0":"1","pos1":"6"}'>Xưởng C</option>
         </select>
       </div>
 
@@ -249,9 +249,9 @@ const char html[] PROGMEM = R"rawliteral(
       <div>
         <label for="to">Điểm đến</label>
         <select name="to" id="to" class="text-center">
-          <option value='{"pos0":6,"pos1":1}'>Xưởng A</option>
-          <option value='{"pos0":6,"pos1":6}' selected>Xưởng B</option>
-          <option value='{"pos0":1,"pos1":6}'>Xưởng C</option>
+          <option value='{"pos0":"6","pos1":"1"}'>Xưởng A</option>
+          <option value='{"pos0":"6","pos1":"6"}' selected>Xưởng B</option>
+          <option value='{"pos0":"1","pos1":"6"}'>Xưởng C</option>
         </select>
       </div>
       
@@ -293,9 +293,9 @@ const char html[] PROGMEM = R"rawliteral(
       newSelect.innerHTML = `
         <label for="to-extra" class="block">Điểm đến tiếp theo</label>
         <select name="to-extra" class="w-full">
-          <option value="{"pos0":6,"pos1":1}">Xưởng A</option>
-          <option value="{"pos0":6,"pos1":6}">Xưởng B</option>
-          <option value="{"pos0":1,"pos1":6}">Xưởng C</option>
+          <option value="{"pos0":"6","pos1":"1"}">Xưởng A</option>
+          <option value="{"pos0":"6","pos1":"6"}">Xưởng B</option>
+          <option value="{"pos0":"1","pos1":"6"}">Xưởng C</option>
         </select>
         <button type="button" onclick="this.parentElement.remove()" class="remove-btn">Xóa</button>
       `;

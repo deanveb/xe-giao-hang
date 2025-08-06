@@ -1,3 +1,4 @@
+#include <esp_task_wdt.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Arduino_JSON.h>
@@ -15,10 +16,6 @@ void move(int action, bool disableEditSpeed = false);
 const int buttonPin = 9;
 bool isLeft = false;
 
-const int trigPinL = 9;
-const int echoPinL = 10;
-const int trigPinR = 11;
-const int echoPinR = 12;
 //define sound speed in cm/uS
 #define SOUND_SPEED 0.034
 #define CM_TO_INCH 0.393701
@@ -81,7 +78,8 @@ enum control {
 const int n = 12;
 
 // in1, in2, in3, in4, enA, enB, in11, in21, in31, in41, enA1, enB1
-const int pins[n] = {19, 20, 21, 47, 48, 45, 37, 36, 35, 41, 39, 38};
+// const int pins[n] = {19, 20, 21, 47, 48, 45, 37, 36, 35, 41, 39, 38};
+const int pins[n] = {19, 20, 21, 47, 48, 45, 41, 37, 36, 35, 39, 38};
 
 
 const int truthTable[][n] = {
@@ -108,20 +106,12 @@ class encoder {
 };
 
 encoder rightEncoder(17, 18, 1);
-encoder leftEncoder(15, 16, 2);
 
 void IRAM_ATTR updateRightEncoder() {
   bool A = digitalRead(rightEncoder.pinA);
   bool B = digitalRead(rightEncoder.pinB);
   if (A == B) rightEncoder.counter++;
   else        rightEncoder.counter--;
-}
-
-void IRAM_ATTR updateLeftEncoder() {
-  bool A = digitalRead(leftEncoder.pinA);
-  bool B = digitalRead(leftEncoder.pinB);
-  if (A == B) leftEncoder.counter++;
-  else        leftEncoder.counter--;
 }
 
 const char* ssid = "PIF_Client";
@@ -136,15 +126,18 @@ unsigned long lastTime = 0;
 //unsigned long timerDelay = 600000;
 // Set timer to 10 seconds (10000)
 unsigned long timerDelay = 10000;
-int start0, start1, end0, end1;
 
 String jsonBuffer;
+const char baseUrl[255] = "https://gps-car-api.vercel.app/api/navigation";
+JSONVar instruction;
 
+bool isBeingDelivered = false;
 
 void setup() {
+  // esp_task_wdt_deinit();  // Completely disable Task Watchdog
   // put your setup code here, to run once:
   Serial.begin(115200);
-  Wire.begin(13, 14);
+  Wire.begin(15, 16);
   Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
 
   Serial.println(F("Initializing I2C devices..."));
@@ -154,6 +147,7 @@ void setup() {
 
   Serial.println(F("Initializing DMP..."));
   devStatus = mpu.dmpInitialize();
+  // devStatus = 1;
 
   // supply your own gyro offsets here, scaled for min sensitivity
   mpu.setXGyroOffset(26.00000);
@@ -190,17 +184,8 @@ void setup() {
       Serial.println(F(")"));
   }
 
-  pinMode(trigPinL, OUTPUT); // Sets the trigPin as an Output
-  pinMode(echoPinL, INPUT);
-  pinMode(trigPinR, OUTPUT); // Sets the trigPin as an Output
-  pinMode(echoPinR, INPUT);
-  Setpoint = 0;
-  // myPID.SetMode(AUTOMATIC);
-
   pinMode(rightEncoder.pinA, INPUT_PULLUP);
   pinMode(rightEncoder.pinB, INPUT_PULLUP);
-  pinMode(leftEncoder.pinA, INPUT_PULLUP);
-  pinMode(leftEncoder.pinB, INPUT_PULLUP);
   for (int i = 0; i < n; i++)
   {
     pinMode(pins[i], OUTPUT);
@@ -223,35 +208,39 @@ void setup() {
  
   server.on("/", setupHTML);
   server.begin();
-  
+
   Serial.println("Timer set to 10 seconds (timerDelay variable), it will take 10 seconds before publishing the first reading.");
 }
 
 void loop() {
   server.handleClient();
-  // Send an HTTP GET request
-  if ((millis() - lastTime) > timerDelay) {
-    // Check WiFi connection status
-    if(WiFi.status()== WL_CONNECTED){
-      String serverPath = "https://gps-car-api.vercel.app/api/navigation?start0=6&start1=1&end0=6&end1=6";
-      
-      jsonBuffer = httpGETRequest(serverPath.c_str());
-      Serial.println(jsonBuffer);
-      JSONVar myObject = JSON.parse(jsonBuffer);
-      // JSON.typeof(jsonVar) can be used to get the type of the var
-      if (JSON.typeof(myObject) == "undefined") {
-        Serial.println("Parsing input failed!");
-        return;
-      }
-    
-      // Serial.print("JSON object = ");
-      // Serial.println(myObject["message"]);
-    }
-    else {
-      Serial.println("WiFi Disconnected");
-    }
-    lastTime = millis();
+  if (isBeingDelivered)
+  {
+    deliverPackage();
   }
+}
+
+void deliverPackage()
+{
+  for (int i = 0; i < instruction.length(); i++)
+  {
+    control currentMode;
+    if (JSON.stringify(instruction[i]["direction"]).equals("thang"))
+    {
+      currentMode = Up;
+    } else if (JSON.stringify(instruction[i]["direction"]).equals("trai"))
+    {
+      currentMode = Left;
+    } else if (JSON.stringify(instruction[i]["direction"]).equals("phai"))
+    {
+      currentMode = Right;
+    }
+
+    const int distance = (int) instruction[i]["distance"];
+    forward(distance / 25);
+    rotate(currentMode);
+  }
+  isBeingDelivered = false;
 }
 
 String httpGETRequest(const char* serverName) {
@@ -284,9 +273,45 @@ void setupHTML()
 {
   server.send(200, "text/html", html);
   // Get GET parameters
-  if (server.hasArg("to"))
+  if (server.hasArg("to") && !isBeingDelivered)
   {
     Serial.println(server.arg("to"));
+    Serial.println(server.arg("from"));
+    JSONVar toRequest = JSON.parse(server.arg("to"));
+    JSONVar fromRequest = JSON.parse(server.arg("from"));
+    // JSON.typeof(jsonVar) can be used to get the type of the var
+    if (JSON.typeof(toRequest) == "undefined") {
+      Serial.println("Parsing input failed!");
+      return;
+    }
+    if (JSON.typeof(fromRequest) == "undefined") {
+      Serial.println("Parsing input failed!");
+      return;
+    }
+    // if (toRequest["pos0"] == fromRequest["pos0"] && toRequest["pos1"] == fromRequest["pos1"])
+    // {
+    //   Serial.println("car ")
+    //   return;
+    // }
+    // Serial.println(myObject["pos0"]);
+    // check if their the same
+    char urlBuffer[255];
+
+    strcpy(urlBuffer, baseUrl);
+    strcat(urlBuffer, "/?start0=");
+    strcat(urlBuffer, toRequest["pos0"]);
+    strcat(urlBuffer, "&start1=");
+    strcat(urlBuffer, toRequest["pos1"]);
+    strcat(urlBuffer, "&end0=");
+    strcat(urlBuffer, fromRequest["pos0"]);
+    strcat(urlBuffer, "&end1=");
+    strcat(urlBuffer, fromRequest["pos1"]);
+
+    // Serial.println(String(toRequest["pos0"]).c_str());
+    
+    instruction = JSON.parse(httpGETRequest(urlBuffer));
+    isBeingDelivered = true;
+    // Serial.println(instruction[0]["distance"]);
   }
 }
 
@@ -357,6 +382,7 @@ void rotate(control direction)
       speed = map(angle, 0, 88, 0, 45);
       // speed = 0;
       Serial.println(255 - speed);
+      // Ignore Up direction
       if (direction == Right)
       {
         if (angle >=88.0 && angle < 89.0)
@@ -371,7 +397,7 @@ void rotate(control direction)
           analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
           analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
           analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          move(Right, false);
+          move(Right, true);
         }
         else if (angle >= 90.0)
         {
@@ -379,29 +405,41 @@ void rotate(control direction)
           analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
           analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
           analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          move(Left, false);
+          move(Left, true);
         }
       } else if (direction == Left)
       {
-        if (angle <= -89.8) move(Left);
-        else 
+        if (angle < -88.0 && angle >= -89.0)
         {
           move(Stop);
+          break;
         }
-      }
-      // if (angle == 90.0)
-      // {
-      //   move(Stop);
-      //   end0 = true;
-      // }
+
+        if (angle <= -90.0) 
+        {
+          analogWrite(pins[4], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          move(Left, true);
+        }
+        else if (angle >= -90.0)
+        {
+          analogWrite(pins[4], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
+          move(Right, true);
+        }
+      } 
     }
   }
-  // MPUOffset = angle;
+  MPUOffset += angle;
 }
 
 void move(int action, bool disableEditSpeed) {
     for (int i = 0; i < n; i++) {
-      if (i != 4 || i != 5 || i != 10 || i != 11) {
+      if (i != 4 && i != 5 && i != 10 && i != 11) {
         digitalWrite(pins[i], truthTable[action][i]);
       }
       else {
@@ -428,78 +466,78 @@ float getDuration(int trigPin, int echoPin)
   return duration;
 }
 
-int alignCar()
-{
-  const float durationL = getDuration(trigPinL, echoPinL);
-  const float durationR = getDuration(trigPinR, echoPinR);
-  const float acceptableError = 1.0;
+// int alignCar()
+// {
+//   const float durationL = getDuration(trigPinL, echoPinL);
+//   const float durationR = getDuration(trigPinR, echoPinR);
+//   const float acceptableError = 1.0;
 
-  if(fabs(durationL-0.3) < 0){
-    distanceCmL=-1;
-  }else{
-     distanceCmL = durationL * SOUND_SPEED/2;
-  }
-  if(fabs(durationR-0.3) < 0){
-    distanceCmR=-1;
-  }else{
-     distanceCmR = durationR * SOUND_SPEED/2;
-  }
+//   if(fabs(durationL-0.3) < 0){
+//     distanceCmL=-1;
+//   }else{
+//      distanceCmL = durationL * SOUND_SPEED/2;
+//   }
+//   if(fabs(durationR-0.3) < 0){
+//     distanceCmR=-1;
+//   }else{
+//      distanceCmR = durationR * SOUND_SPEED/2;
+//   }
   
-  // Convert to inches
-  // distanceInch = distanceCm * CM_TO_INCH;
-  // tuning parameter between 0 and 1
-  filteredValL = (alpha * distanceCmL + (1 - alpha) * filteredValL);
-  filteredValR = (alpha1 * distanceCmR + (1 - alpha1) * filteredValR);
+//   // Convert to inches
+//   // distanceInch = distanceCm * CM_TO_INCH;
+//   // tuning parameter between 0 and 1
+//   filteredValL = (alpha * distanceCmL + (1 - alpha) * filteredValL);
+//   filteredValR = (alpha1 * distanceCmR + (1 - alpha1) * filteredValR);
 
-  // Prints the distance in the Serial Monitor
-  Serial.print(filteredValL);
-  Serial.print(" ");
-  Serial.print(filteredValR);
-  Serial.print(" ");
-  Serial.print(Output);
-  Serial.print(" ");
+//   // Prints the distance in the Serial Monitor
+//   Serial.print(filteredValL);
+//   Serial.print(" ");
+//   Serial.print(filteredValR);
+//   Serial.print(" ");
+//   Serial.print(Output);
+//   Serial.print(" ");
 
 
-  Input = filteredValL - filteredValR;
-  const int speed = Output;
-  Serial.println(constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
+//   Input = filteredValL - filteredValR;
+//   const int speed = Output;
+//   Serial.println(constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
   
-  // if (Input > 0)
-  // {
-  //   analogWrite(pins[4], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[5], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[10], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[11], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-  // } else if (Input < 0)
-  // {
-  //   analogWrite(pins[4], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[5], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[10], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[11], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-  // } else
-  // {
-  //   analogWrite(pins[4], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[5], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[10], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-  //   analogWrite(pins[11], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-  // }
+//   // if (Input > 0)
+//   // {
+//   //   analogWrite(pins[4], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[5], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[10], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[11], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
+//   // } else if (Input < 0)
+//   // {
+//   //   analogWrite(pins[4], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[5], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[10], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[11], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
+//   // } else
+//   // {
+//   //   analogWrite(pins[4], constrain(currentSpeed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[5], constrain(currentSpeed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[10], constrain(currentSpeed, MIN_PWM, MAX_PWM));
+//   //   analogWrite(pins[11], constrain(currentSpeed, MIN_PWM, MAX_PWM));
+//   // }
 
 
-  // Determine direction based on error
-  if (abs(Input) <= 1) {  // Deadband for small errors
-    move(Stop, true);
-  } 
-  else if (Input > 0) {
-    move(Right, true);
-  } 
-  else {
-    move(Left, true);
-  }
+//   // Determine direction based on error
+//   if (abs(Input) <= 1) {  // Deadband for small errors
+//     move(Stop, true);
+//   } 
+//   else if (Input > 0) {
+//     move(Right, true);
+//   } 
+//   else {
+//     move(Left, true);
+//   }
 
-  resetEncoder();
+//   resetEncoder();
 
-  return abs(Input);
-}
+//   return abs(Input);
+// }
 
 void waitMPU()
 {
