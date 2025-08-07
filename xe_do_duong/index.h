@@ -178,7 +178,7 @@ const char html[] PROGMEM = R"rawliteral(
     }
     
     .map-container {
-      height: 300px;
+      height: auto;
       background-color: rgba(0, 0, 0, 0.3);
       border-radius: 8px;
       border: 1px solid rgba(0, 247, 255, 0.3);
@@ -238,9 +238,9 @@ const char html[] PROGMEM = R"rawliteral(
       <div>
         <label for="from">Điểm xuất phát</label>
         <select name="from" id="from" class="text-center">
-          <option value='{"pos0":"6","pos1":"1"}'>Xưởng A</option>
-          <option value='{"pos0":"6","pos1":"6"}'>Xưởng B</option>
-          <option value='{"pos0":"1","pos1":"6"}'>Xưởng C</option>
+          <option value='{"pos0":6,"pos1":1}'>Xưởng A</option>
+          <option value='{"pos0":6,"pos1":6}'>Xưởng B</option>
+          <option value='{"pos0":1,"pos1":6}'>Xưởng C</option>
         </select>
       </div>
 
@@ -249,18 +249,21 @@ const char html[] PROGMEM = R"rawliteral(
       <div>
         <label for="to">Điểm đến</label>
         <select name="to" id="to" class="text-center">
-          <option value='{"pos0":"6","pos1":"1"}'>Xưởng A</option>
-          <option value='{"pos0":"6","pos1":"6"}' selected>Xưởng B</option>
-          <option value='{"pos0":"1","pos1":"6"}'>Xưởng C</option>
+          <option value='{"pos0":6,"pos1":1}'>Xưởng A</option>
+          <option value='{"pos0":6,"pos1":6}' selected>Xưởng B</option>
+          <option value='{"pos0":1,"pos1":6}'>Xưởng C</option>
         </select>
       </div>
       
       <input type="submit" value="BẮT ĐẦU">
     </form>
+    <div class="map-container">
+      <img src="./output_prefix-1.webp">
+    </div> 
     
-    <div id="additional-destinations" class="flex items-center justify-center w-fit h-fit border rounded-md space-y-4 mx-auto p-1">
+    <!-- <div id="additional-destinations" class="flex items-center justify-center w-fit h-fit border rounded-md space-y-4 mx-auto p-1">
       <button type="button" onclick="addDestination()" class="mt-0">Thêm điểm đến</button>
-    </div>
+    </div> -->
     
     <div class="progress-container">
       <label>Tiến trình vận chuyển</label>
@@ -273,18 +276,6 @@ const char html[] PROGMEM = R"rawliteral(
         <span style="font-size: 12px; color: var(--text-dim);font-weight: bold;">100%</span>
       </div>
     </div>
-    
-    <!-- <div class="map-container">
-      <div class="grid-lines"></div>
-      <div class="map-placeholder">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary); margin-bottom: 10px;">
-          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-          <circle cx="12" cy="10" r="3"></circle>
-        </svg>
-        <p>Bản đồ hiển thị vị trí xe sẽ xuất hiện tại đây</p>
-      </div>
-    </div>
-  </div> -->
 
   <script>
     function addDestination() {
@@ -293,9 +284,9 @@ const char html[] PROGMEM = R"rawliteral(
       newSelect.innerHTML = `
         <label for="to-extra" class="block">Điểm đến tiếp theo</label>
         <select name="to-extra" class="w-full">
-          <option value="{"pos0":"6","pos1":"1"}">Xưởng A</option>
-          <option value="{"pos0":"6","pos1":"6"}">Xưởng B</option>
-          <option value="{"pos0":"1","pos1":"6"}">Xưởng C</option>
+          <option value="{"pos0":6,"pos1":1}">Xưởng A</option>
+          <option value="{"pos0":6,"pos1":6}">Xưởng B</option>
+          <option value="{"pos0":1,"pos1":6}">Xưởng C</option>
         </select>
         <button type="button" onclick="this.parentElement.remove()" class="remove-btn">Xóa</button>
       `;
