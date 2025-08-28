@@ -7,10 +7,10 @@
 #include <I2Cdev.h>
 #include <math.h>
 #include "MPU6050_6Axis_MotionApps20.h"
-#include <MPU6050.h> // not necessary if using MotionApps include file
+#include <MPU6050.h>  // not necessary if using MotionApps include file
 #include "Wire.h"
 
-void move(int action, bool disableEditSpeed = false);
+void move(int action, bool disableEditSpeed = true, int modifiedSpeed = 255);
 
 // debugging
 const int buttonPin = 9;
@@ -47,75 +47,76 @@ const float alpha1 = 0.5678;
 int MPUOffset = 0;
 
 double Setpoint, Input, Output;
-double Kp=50, Ki=2, Kd=30;
+double Kp = 50, Ki = 2, Kd = 30;
 MPU6050 mpu;
 // MPU control/status vars
-bool dmpReady = false;  // set true if DMP init was successful
-uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
-uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
-uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
-uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[64]; // FIFO storage buffer
+bool dmpReady = false;   // set true if DMP init was successful
+uint8_t mpuIntStatus;    // holds actual interrupt status byte from MPU
+uint8_t devStatus;       // return status after each device operation (0 = success, !0 = error)
+uint16_t packetSize;     // expected DMP packet size (default is 42 bytes)
+uint16_t fifoCount;      // count of all bytes currently in FIFO
+uint8_t fifoBuffer[64];  // FIFO  storage buffer
 
 // orientation/motion vars
-Quaternion q;           // [w, x, y, z]         quaternion container
-VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
-VectorFloat gravity;    // [x, y, z]            gravity vector
-float euler[3];         // [psi, theta, phi]    Euler angle container
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+Quaternion q;         // [w, x, y, z]         quaternion container
+VectorInt16 aa;       // [x, y, z]            accel sensor measurements
+VectorInt16 aaReal;   // [x, y, z]            gravity-free accel sensor measurements
+VectorInt16 aaWorld;  // [x, y, z]            world-frame accel sensor measurements
+VectorFloat gravity;  // [x, y, z]            gravity vector
+float euler[3];       // [psi, theta, phi]    Euler angle container
+float ypr[3];         // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
 enum control {
-    Left,
-    Right,
-    Down,
-    Up,
-    Stop,
+  Left,
+  Right,
+  Up,
+  Down,
+  Stop,
 };
 
 // Số lượng pin cần sử dụng
-const int n = 12;
+const int n = 4;
 
-// in1, in2, in3, in4, enA, enB, in11, in21, in31, in41, enA1, enB1
+// in1.3, in2.4, in1.3(2), in2.4(2)
 // const int pins[n] = {19, 20, 21, 47, 48, 45, 37, 36, 35, 41, 39, 38};
-const int pins[n] = {19, 20, 21, 47, 48, 45, 41, 37, 36, 35, 39, 38};
+// const int pins[n] = {19, 20, 21, 47, 48, 45, 41, 37, 36, 35, 39, 38};
+const int pins[n] = { 21, 19, 33, 32 };
 
 
 const int truthTable[][n] = {
-  {LOW, HIGH, LOW, HIGH, 255, 255, HIGH, LOW, HIGH, LOW, 255, 255}, // Left
-  {HIGH, LOW, HIGH, LOW, 255, 255, LOW, HIGH, LOW, HIGH, 255, 255}, // Right
-  {HIGH, LOW, HIGH, LOW, 255, 255, HIGH, LOW, HIGH, LOW, 255, 255}, //Up
-  {LOW, HIGH, LOW, HIGH, 255, 255, LOW, HIGH, LOW, HIGH, 255, 255}, // Down
-  {LOW, LOW, LOW, LOW, 0, 0, LOW, LOW, LOW, LOW, 0, 0} // Stop
+  { LOW, HIGH, HIGH, LOW },  // Left
+  { HIGH, LOW, LOW, HIGH },  // Right
+  { HIGH, LOW, HIGH, LOW },  //Up
+  { LOW, HIGH, LOW, HIGH },  // Down
+  { LOW, LOW, LOW, LOW }     // Stop
 };
 
 class encoder {
-  public:
-    int pinA;
-    int pinB;
-    volatile int counter = 0;
-    int direction;
-    int prev_counter;
-    int error;
-    encoder(int pinA, int pinB, int error) {
-      this->pinA = pinA;
-      this->pinB = pinB;
-      this->error = error;
-    }
+public:
+  int pinA;
+  int pinB;
+  volatile int counter = 0;
+  int direction;
+  int prev_counter;
+  int error;
+  encoder(int pinA, int pinB, int error) {
+    this->pinA = pinA;
+    this->pinB = pinB;
+    this->error = error;
+  }
 };
 
-encoder rightEncoder(17, 18, 1);
+encoder rightEncoder(25, 26, 1);
 
 void IRAM_ATTR updateRightEncoder() {
   bool A = digitalRead(rightEncoder.pinA);
   bool B = digitalRead(rightEncoder.pinB);
   if (A == B) rightEncoder.counter++;
-  else        rightEncoder.counter--;
+  else rightEncoder.counter--;
 }
 
-const char* ssid = "PIF_Client";
-const char* password = "88888888";
+const char* ssid = "Dinv";
+const char* password = "chiandeptrai";
 
 WebServer server(80);
 
@@ -129,16 +130,18 @@ unsigned long timerDelay = 10000;
 
 String jsonBuffer;
 const char baseUrl[255] = "https://gps-car-api.vercel.app/api/navigation";
-JSONVar instruction;
+JSONVar deliveryInstruction;
+JSONVar returnInstruction;
+int repeatedTimes = 0;
+int progress = 0;
 
 bool isBeingDelivered = false;
 
 void setup() {
-  // esp_task_wdt_deinit();  // Completely disable Task Watchdog
   // put your setup code here, to run once:
   Serial.begin(115200);
-  Wire.begin(15, 16);
-  Wire.setClock(400000); // 400kHz I2C clock. Comment this line if having compilation difficulties
+  Wire.begin(18, 17);
+  Wire.setClock(400000);  // 400kHz I2C clock. Comment this line if having compilation difficulties
 
   Serial.println(F("Initializing I2C devices..."));
   mpu.initialize();
@@ -153,41 +156,40 @@ void setup() {
   mpu.setXGyroOffset(26.00000);
   mpu.setYGyroOffset(-31.00000);
   mpu.setZGyroOffset(-2.00000);
-  mpu.setZAccelOffset(1224.00000); // 1688 factory default for my test chip
+  mpu.setZAccelOffset(1224.00000);  // 1688 factory default for my test chip
 
   // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
-      // Calibration Time: generate offsets and calibrate our MPU6050
-      mpu.PrintActiveOffsets();
-      // turn on the DMP, now that it's ready
-      Serial.println(F("Enabling DMP..."));
-      mpu.setDMPEnabled(true);
+    // Calibration Time: generate offsets and calibrate our MPU6050
+    mpu.PrintActiveOffsets();
+    // turn on the DMP, now that it's ready
+    Serial.println(F("Enabling DMP..."));
+    mpu.setDMPEnabled(true);
 
-      // enable Arduino interrupt detection
-      Serial.print(F("Enabling interrupt detection (Arduino external interrupt "));
-      Serial.println(F(")..."));
-      mpuIntStatus = mpu.getIntStatus();
+    // enable Arduino interrupt detection
+    Serial.print(F("Enabling interrupt detection (Arduino external interrupt "));
+    Serial.println(F(")..."));
+    mpuIntStatus = mpu.getIntStatus();
 
-      // set our DMP Ready flag so the main loop() function knows it's okay to use it
-      Serial.println(F("DMP ready! Waiting for first interrupt..."));
-      dmpReady = true;
+    // set our DMP Ready flag so the main loop() function knows it's okay to use it
+    Serial.println(F("DMP ready! Waiting for first interrupt..."));
+    dmpReady = true;
 
-      // get expected DMP packet size for later comparison
-      packetSize = mpu.dmpGetFIFOPacketSize();
+    // get expected DMP packet size for later comparison
+    packetSize = mpu.dmpGetFIFOPacketSize();
   } else {
-      // ERROR!
-      // 1 = initial memory load failed
-      // 2 = DMP configuration updates failed
-      // (if it's going to break, usually the code will be 1)
-      Serial.print(F("DMP Initialization failed (code "));
-      Serial.print(devStatus);
-      Serial.println(F(")"));
+    // ERROR!
+    // 1 = initial memory load failed
+    // 2 = DMP configuration updates failed
+    // (if it's going to break, usually the code will be 1)
+    Serial.print(F("DMP Initialization failed (code "));
+    Serial.print(devStatus);
+    Serial.println(F(")"));
   }
 
   pinMode(rightEncoder.pinA, INPUT_PULLUP);
   pinMode(rightEncoder.pinB, INPUT_PULLUP);
-  for (int i = 0; i < n; i++)
-  {
+  for (int i = 0; i < n; i++) {
     pinMode(pins[i], OUTPUT);
   }
 
@@ -198,68 +200,131 @@ void setup() {
 
   WiFi.begin(ssid, password);
   Serial.println("Connecting");
-  while(WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+Serial.print(".");
   }
   Serial.println("");
   Serial.print("Connected to WiFi network with IP Address: ");
   Serial.println(WiFi.localIP());
- 
+
   server.on("/", setupHTML);
+  // server.on("/progress", []() {
+  //   server.send(200, "text/plain", String(progress));
+  // });
+  // server.on("/inProgress", []() {
+  //   server.send(200, "text/plain", String(isBeingDelivered));
+  // });
+
   server.begin();
 
-  Serial.println("Timer set to 10 seconds (timerDelay variable), it will take 10 seconds before publishing the first reading.");
+  // Serial.println("Timer set to 10 seconds (timerDelay variable), it will take 10 seconds before publishing the first reading.");
 }
 
 void loop() {
   server.handleClient();
-  if (isBeingDelivered)
-  {
+  // move(Up);
+
+  if (isBeingDelivered) {
     deliverPackage();
+    if (repeatedTimes != 0) {
+      repeatedTimes--;
+    } else {
+      isBeingDelivered = false;
+    }
   }
 }
 
-void deliverPackage()
-{
-  for (int i = 0; i < instruction.length(); i++)
-  {
-    control currentMode;
-    if (JSON.stringify(instruction[i]["direction"]).equals("thang"))
-    {
+void deliverPackage() {
+  int distance = 0;
+  for (int i = 0; i < deliveryInstruction.length(); i++) {
+    control currentMode = Up;
+    // const char* charPointer = (JSON.stringify(deliveryInstruction[i]["direction"])).c_str();
+    String direction = JSON.stringify(deliveryInstruction[i]["direction"]); 
+    // Serial.println(direction == thang);
+    
+    if (direction == String("\"thang\"")) {
       currentMode = Up;
-    } else if (JSON.stringify(instruction[i]["direction"]).equals("trai"))
-    {
+    } else if (direction == String("\"trai\"")) {
       currentMode = Left;
-    } else if (JSON.stringify(instruction[i]["direction"]).equals("phai"))
-    {
+    } else if (direction == String("\"phai\"")) {
       currentMode = Right;
     }
-
-    const int distance = (int) instruction[i]["distance"];
+    distance = (int) deliveryInstruction[i]["distance"];
+    Serial.print(currentMode);
+    Serial.print(" ");
+    Serial.println(JSON.stringify(deliveryInstruction[i]["direction"]));
     forward(distance / 25);
+    resetEncoder();
+    // move(Stop);
+    delay(50);
     rotate(currentMode);
+    resetEncoder();
+    delay(50);
+    // move(Stop);
+    // progress = floor(i / deliveryInstruction.length() * 100);
   }
-  isBeingDelivered = false;
+  forward(distance / 25);
+  resetEncoder();
+  delay(50);
+  forward(distance / 25);
+  delay(50);
+  // To rotate Down
+  rotate(Left);
+  delay(50);
+  rotate(Left);
+  // progress = 0;
+  // for (int i = 0; i < returnInstruction.length(); i++) {
+  //   String direction = JSON.stringify(returnInstruction[i]["direction"]); 
+  //   control currentMode;
+  //   if (direction == String("\"thang\"")) {
+  //     currentMode = Up;
+  //   } else if (direction == String("\"trai\"")) {
+  //     currentMode = Left;
+  //   } else if (direction == String("\"phai\"")) {
+  //     currentMode = Right;
+  //   }
+
+  //   const int distance = (int)returnInstruction[i]["distance"];
+  //   resetEncoder();
+  //   forward(distance / 25);
+  //   delay(50);
+  //   resetEncoder();
+  //   rotate(currentMode);
+  //   delay(50);
+  //   progress = floor(i / returnInstruction.length() * 100);
+  // }
+  // forward(distance / 25);
+  // resetEncoder();
+  // delay(50);
+  // forward(distance / 25);
+  // delay(50);
+  // // To rotate Down
+  // rotate(Left);
+  // delay(50);
+  // rotate(Left);
 }
 
 String httpGETRequest(const char* serverName) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected!");
+    return "";
+  }
   HTTPClient http;
-  
+
   // Your Domain name with URL path or IP address with path
   http.begin(serverName);
-  
+
   // Send HTTP POST request
   int httpResponseCode = http.GET();
-  
+
   String payload = "{}";
-  
-  if (httpResponseCode>0) {
+
+  if (httpResponseCode > 0) {
     // Serial.print("HTTP Response code: ");
     // Serial.println(httpResponseCode);
     payload = http.getString();
-  }
-  else {
+  } else {
     Serial.print("Error code: ");
     Serial.println(httpResponseCode);
   }
@@ -269,13 +334,12 @@ String httpGETRequest(const char* serverName) {
   return payload;
 }
 
-void setupHTML()
-{
+void setupHTML() {
+  // esp_task_wdt_deinit();
   server.send(200, "text/html", html);
   // Get GET parameters
-  if (server.hasArg("to") && !isBeingDelivered)
-  {
-    Serial.println(server.arg("to"));
+if (server.hasArg("to") && !isBeingDelivered) {
+Serial.println(server.arg("to"));
     Serial.println(server.arg("from"));
     JSONVar toRequest = JSON.parse(server.arg("to"));
     JSONVar fromRequest = JSON.parse(server.arg("from"));
@@ -288,169 +352,192 @@ void setupHTML()
       Serial.println("Parsing input failed!");
       return;
     }
-    // if (toRequest["pos0"] == fromRequest["pos0"] && toRequest["pos1"] == fromRequest["pos1"])
-    // {
-    //   Serial.println("car ")
-    //   return;
-    // }
-    // Serial.println(myObject["pos0"]);
     // check if their the same
-    char urlBuffer[255];
+    char urlBufferDeliver[255] = "";
 
-    strcpy(urlBuffer, baseUrl);
-    strcat(urlBuffer, "/?start0=");
-    strcat(urlBuffer, toRequest["pos0"]);
-    strcat(urlBuffer, "&start1=");
-    strcat(urlBuffer, toRequest["pos1"]);
-    strcat(urlBuffer, "&end0=");
-    strcat(urlBuffer, fromRequest["pos0"]);
-    strcat(urlBuffer, "&end1=");
-    strcat(urlBuffer, fromRequest["pos1"]);
+    String urlStringDelivery = String(baseUrl);
+    urlStringDelivery += "/?start0=" + JSON.stringify(fromRequest["pos0"]);
+    urlStringDelivery += "&start1=" + JSON.stringify(fromRequest["pos1"]);
+    urlStringDelivery += "&end0=" + JSON.stringify(toRequest["pos0"]);
+    urlStringDelivery += "&end1=" + JSON.stringify(toRequest["pos1"]);
 
-    // Serial.println(String(toRequest["pos0"]).c_str());
-    
-    instruction = JSON.parse(httpGETRequest(urlBuffer));
+    char urlBufferReturn[255] = "";
+
+    String urlStringReturn = String(baseUrl);
+    urlStringReturn += "/?start0=" + JSON.stringify(toRequest["pos0"]);
+    urlStringReturn += "&start1=" + JSON.stringify(toRequest["pos1"]);
+    urlStringReturn += "&end0=" + JSON.stringify(fromRequest["pos0"]);
+    urlStringReturn += "&end1=" + JSON.stringify(fromRequest["pos1"]);
+
+    Serial.println("Final URL:");
+    Serial.println(urlStringDelivery);
+    Serial.println(urlStringReturn);
+
+    urlStringDelivery.toCharArray(urlBufferDeliver, sizeof(urlBufferDeliver));
+    urlStringReturn.toCharArray(urlBufferReturn, sizeof(urlBufferReturn));
+
+    deliveryInstruction = JSON.parse(httpGETRequest(urlBufferDeliver));
+    returnInstruction = JSON.parse(httpGETRequest(urlBufferReturn));
+    Serial.println(JSON.stringify(deliveryInstruction));
+    Serial.println(JSON.stringify(returnInstruction));
+
+    if (JSON.typeof(deliveryInstruction) != "array") {
+      Serial.println("Failed to parse delivery instruction or invalid format.");
+      isBeingDelivered = false;
+      return;
+    }
+    if (JSON.typeof(returnInstruction) != "array") {
+      Serial.println("Failed to parse return instruction or invalid format.");
+      isBeingDelivered = false;
+      return;
+    }
     isBeingDelivered = true;
     // Serial.println(instruction[0]["distance"]);
   }
+  // if (server.hasArg("time")) {
+  //   try {
+  //     repeatedTimes = server.arg("time").toInt();
+  //   } catch (const char* msg) {
+  //     Serial.println(msg);
+  //     repeatedTimes = 0;
+  //   }
+  // }
 }
 
-void resetEncoder()
-{
+void resetEncoder() {
   rightEncoder.counter = 0;
 }
 
-void forward(int step)
-{
-  const int size = 25; // (cm)
+void forward(int step) {
+  const int size = 25 / 2;  // (cm)
   const int error = 0;
   const int speed = 255;
 
-  float traveledRight = abs((rightEncoder.counter/GEAR_REVOLUTION)*WHEEL_RADIUS*PI);
+  float traveledRight = abs((rightEncoder.counter / GEAR_REVOLUTION) * WHEEL_RADIUS * PI);
 
   int slowDown = 0;
-  while(traveledRight != size*step && slowDown <= 255)
-  {
-    while (traveledRight <= size * step - error)
-    {
-      traveledRight = abs((rightEncoder.counter/GEAR_REVOLUTION)*WHEEL_RADIUS*PI);
-      // Serial.print("traveledRight:");
-      // Serial.println(traveledRight);
-      analogWrite(pins[4], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      analogWrite(pins[5], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      analogWrite(pins[10], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      analogWrite(pins[11], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      // currentSpeed = 255;
+    while (traveledRight <= size * step - error) {
+      traveledRight = abs((rightEncoder.counter / GEAR_REVOLUTION) * WHEEL_RADIUS * PI);
+      Serial.print("traveledRight:");
+      Serial.println(traveledRight);
+// currentSpeed = 255;
       // alignCar();
-      move(Up, true);
-    }
-    slowDown += 50;
-    while (traveledRight <= size * step - error)
-    {
-      traveledRight = abs((rightEncoder.counter/GEAR_REVOLUTION)*WHEEL_RADIUS*PI);
-      analogWrite(pins[4], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      analogWrite(pins[5], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      analogWrite(pins[10], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      analogWrite(pins[11], constrain(speed - slowDown, MIN_PWM, MAX_PWM));
-      // currentSpeed = 255;
-      // alignCar();
-      move(Down, true);
-    }
+      move(Up, false, 255);
   }
 
   move(Stop);
   resetEncoder();
 }
 
-void rotate(control direction)
-{
-  if (!dmpReady) return;
-    // read a packet from FIFO
 
-  float angle = 0;
-  int speed = 255;
-  while(true)
+float angle = 0;
+
+void rotate(control direction) {
+  if (!dmpReady) {
+    Serial.println("dmp just got disconnected");
+    return;
+  }
+
+  // read a packet from FIFO
+
+  const float lowerNum = 89.0;
+  const float upperNum = 90.0;
+  bool init = false;
+  float originAngle = 0;
+  int speed = 0;
+  int speed1 = 0;
+  
+  if (direction == Up || direction == Down)
   {
-    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet 
+    return;
+  }
+
+  while (true) {
+    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {  // Get the Latest packet
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      float angle = (ypr[0] * 180/M_PI) - (MPUOffset);
+      angle = (ypr[0] * 180 / M_PI) - (MPUOffset);
+      angle = angle < 0 ? angle + 360 : angle;
+      if (!init) {
+        originAngle = angle;
+        init = true;
+      }
       Serial.print("ypr\t");
       Serial.print(angle);
       Serial.print(" ");
-      speed = map(angle, 0, 88, 0, 45);
-      // speed = 0;
-      Serial.println(255 - speed);
+      Serial.print(direction);
+      speed = 0;
       // Ignore Up direction
-      if (direction == Right)
-      {
-        if (angle >=88.0 && angle < 89.0)
-        {
+      if (direction == Right) {
+        const float lower = (originAngle + lowerNum) >= 360 ? originAngle + lowerNum - 360 : originAngle + lowerNum;
+        const float upper = (originAngle + upperNum) >= 360 ? originAngle + upperNum - 360 : originAngle + upperNum;
+        speed = map(angle, originAngle, upper, 0, 155);
+        Serial.print(constrain(255 - speed, MIN_PWM, MAX_PWM));
+        Serial.print(" ");
+        Serial.println(lower);
+
+        if (angle >= lower && angle < upper) {
           move(Stop);
+          mpu.resetFIFO();
+          delay(10);
           break;
         }
 
-        if (angle <= 90.0) 
-        {
-          analogWrite(pins[4], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          move(Right, true);
+        if (angle <= lower) {
+          move(Left, false, constrain(255 - speed, MIN_PWM, MAX_PWM));
+        } else if (angle >= upper) {
+          move(Right, false, constrain(255 - speed, MIN_PWM, MAX_PWM));
         }
-        else if (angle >= 90.0)
-        {
-          analogWrite(pins[4], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          move(Left, true);
-        }
-      } else if (direction == Left)
-      {
-        if (angle < -88.0 && angle >= -89.0)
-        {
+      } else if (direction == Left) {
+        const float upper = (originAngle - lowerNum) < 0 ? originAngle - lowerNum + 360 : originAngle - lowerNum;
+        const float lower = (originAngle - upperNum) < 0 ? originAngle - upperNum + 360 : originAngle - upperNum;
+        speed = map(angle, originAngle, upper, 0, 200);
+        Serial.println(constrain(255 - speed, MIN_PWM, MAX_PWM));
+        Serial.print(" ");
+        Serial.println(lower);
+        if (angle >= lower && angle < upper) {
           move(Stop);
+          mpu.resetFIFO();
+          delay(10);
           break;
         }
-
-        if (angle <= -90.0) 
-        {
-          analogWrite(pins[4], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          move(Left, true);
+        if(lower-360<0){
+          if (angle <= upper) {
+            move(Left, false, constrain(255 - speed, MIN_PWM, MAX_PWM));
+          } else if (angle >= upper) {
+            move(Right, false, constrain(255 - speed, MIN_PWM, MAX_PWM));
+          }
+        }else{
+          if (angle <= lower) {
+            move(Right, false, constrain(255 - speed, MIN_PWM, MAX_PWM));
+          } else if (angle >= upper) {
+            move(Left, false, constrain(255 - speed, MIN_PWM, MAX_PWM));
+          }
         }
-        else if (angle >= -90.0)
-        {
-          analogWrite(pins[4], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[5], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[10], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          analogWrite(pins[11], constrain(255 - speed, MIN_PWM, MAX_PWM));
-          move(Right, true);
-        }
-      } 
+      }
     }
   }
-  MPUOffset += angle;
 }
 
-void move(int action, bool disableEditSpeed) {
-    for (int i = 0; i < n; i++) {
-      if (i != 4 && i != 5 && i != 10 && i != 11) {
-        digitalWrite(pins[i], truthTable[action][i]);
-      }
-      else {
-        if (disableEditSpeed) continue;
-        analogWrite(pins[i], truthTable[action][i]);
-      }
-    }
+void move(int action, bool disableEditSpeed, int modifiedSpeed) {
+  const int defaultSpeed = 255;
+int speedToUse = disableEditSpeed ? defaultSpeed : modifiedSpeed;
+
+  // First turn all pins LOW to prevent any overlap
+  for (int i = 0; i < n; i++) {
+    analogWrite(pins[i], 0);
   }
 
-float getDuration(int trigPin, int echoPin)
-{
+  // Then activate only the needed pins
+  for (int i = 0; i < n; i++) {
+    if (truthTable[action][i] == HIGH) {
+      analogWrite(pins[i], speedToUse);
+    }
+  }
+}
+
+float getDuration(int trigPin, int echoPin) {
   // Clears the trigPin
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -459,106 +546,30 @@ float getDuration(int trigPin, int echoPin)
 
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  
+
   // Reads the echoPin, returns the sound wave travel time in microseconds
   const float duration = pulseIn(echoPin, HIGH, 30000);
 
   return duration;
 }
 
-// int alignCar()
-// {
-//   const float durationL = getDuration(trigPinL, echoPinL);
-//   const float durationR = getDuration(trigPinR, echoPinR);
-//   const float acceptableError = 1.0;
-
-//   if(fabs(durationL-0.3) < 0){
-//     distanceCmL=-1;
-//   }else{
-//      distanceCmL = durationL * SOUND_SPEED/2;
-//   }
-//   if(fabs(durationR-0.3) < 0){
-//     distanceCmR=-1;
-//   }else{
-//      distanceCmR = durationR * SOUND_SPEED/2;
-//   }
-  
-//   // Convert to inches
-//   // distanceInch = distanceCm * CM_TO_INCH;
-//   // tuning parameter between 0 and 1
-//   filteredValL = (alpha * distanceCmL + (1 - alpha) * filteredValL);
-//   filteredValR = (alpha1 * distanceCmR + (1 - alpha1) * filteredValR);
-
-//   // Prints the distance in the Serial Monitor
-//   Serial.print(filteredValL);
-//   Serial.print(" ");
-//   Serial.print(filteredValR);
-//   Serial.print(" ");
-//   Serial.print(Output);
-//   Serial.print(" ");
-
-
-//   Input = filteredValL - filteredValR;
-//   const int speed = Output;
-//   Serial.println(constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-  
-//   // if (Input > 0)
-//   // {
-//   //   analogWrite(pins[4], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[5], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[10], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[11], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-//   // } else if (Input < 0)
-//   // {
-//   //   analogWrite(pins[4], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[5], constrain(currentSpeed + speed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[10], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[11], constrain(currentSpeed - speed, MIN_PWM, MAX_PWM));
-//   // } else
-//   // {
-//   //   analogWrite(pins[4], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[5], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[10], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-//   //   analogWrite(pins[11], constrain(currentSpeed, MIN_PWM, MAX_PWM));
-//   // }
-
-
-//   // Determine direction based on error
-//   if (abs(Input) <= 1) {  // Deadband for small errors
-//     move(Stop, true);
-//   } 
-//   else if (Input > 0) {
-//     move(Right, true);
-//   } 
-//   else {
-//     move(Left, true);
-//   }
-
-//   resetEncoder();
-
-//   return abs(Input);
-// }
-
-void waitMPU()
-{
+void waitMPU() {
   float prevAngle = 0;
   float currentAngle = 0;
   int count = 0;
 
-  do
-  {
-    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet 
+  do {
+    if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {  // Get the Latest packet
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
       prevAngle = currentAngle;
-      currentAngle = ypr[0] * 180/M_PI;
-      if (prevAngle == currentAngle)
-      {
+      currentAngle = ypr[0] * 180 / M_PI;
+      if (prevAngle == currentAngle) {
         count++;
       }
-    }
-  } while(count != MAX_MPU_COUNT);
+}
+  } while (count != MAX_MPU_COUNT);
   MPUOffset = currentAngle;
   Serial.println(currentAngle);
   Serial.println("Finished");

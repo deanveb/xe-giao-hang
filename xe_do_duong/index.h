@@ -117,6 +117,18 @@ const char html[] PROGMEM = R"rawliteral(
       transition: all 0.3s ease;
       width: 100%;
     }
+
+    input[type="number"] {
+      background-color: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(0, 247, 255, 0.3);
+      color: var(--text);
+      padding: 1px 12px;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      width: 100%;
+      -moz-appearance: textfield;
+    }
     
     select {
       appearance: none;
@@ -255,10 +267,15 @@ const char html[] PROGMEM = R"rawliteral(
         </select>
       </div>
       
-      <input type="submit" value="BẮT ĐẦU">
+      <div>
+        <label for="time">số lần</label>
+        <input name="time" type="number" value="0" required>
+      </div>
+      
+      <input type="submit" id="start-btn" value="BẮT ĐẦU" onclick="pollInProgress()">
     </form>
     <div class="map-container">
-      <img src="./output_prefix-1.webp">
+      <img src="data:image/webp;base64,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">
     </div> 
     
     <!-- <div id="additional-destinations" class="flex items-center justify-center w-fit h-fit border rounded-md space-y-4 mx-auto p-1">
@@ -267,7 +284,7 @@ const char html[] PROGMEM = R"rawliteral(
     
     <div class="progress-container">
       <label>Tiến trình vận chuyển</label>
-      <progress value="70" max="100"></progress>
+      <progress id='progress-bar' value="0" max="100"></progress>
       <div style="display: flex; justify-content: space-between; margin-top: 5px;">
         <span style="font-size: 12px; color: var(--text-dim);font-weight: bold;">0%</span>
         <span style="font-size: 12px; color: var(--text-dim);font-weight: bold;">25%</span>
@@ -277,22 +294,67 @@ const char html[] PROGMEM = R"rawliteral(
       </div>
     </div>
 
-  <script>
-    function addDestination() {
-      const container = document.getElementById('additional-destinations');
-      const newSelect = document.createElement('div');
-      newSelect.innerHTML = `
-        <label for="to-extra" class="block">Điểm đến tiếp theo</label>
-        <select name="to-extra" class="w-full">
-          <option value="{"pos0":6,"pos1":1}">Xưởng A</option>
-          <option value="{"pos0":6,"pos1":6}">Xưởng B</option>
-          <option value="{"pos0":1,"pos1":6}">Xưởng C</option>
-        </select>
-        <button type="button" onclick="this.parentElement.remove()" class="remove-btn">Xóa</button>
-      `;
-      container.appendChild(newSelect);
-    }
-  </script>
+    <script>
+      function addDestination() {
+        const container = document.getElementById('additional-destinations');
+        const newSelect = document.createElement('div');
+        newSelect.innerHTML = `
+          <label for="to-extra" class="block">Điểm đến tiếp theo</label>
+          <select name="to-extra" class="w-full">
+            <option value="{"pos0":6,"pos1":1}">Xưởng A</option>
+            <option value="{"pos0":6,"pos1":6}">Xưởng B</option>
+            <option value="{"pos0":1,"pos1":6}">Xưởng C</option>
+          </select>
+          <button type="button" onclick="this.parentElement.remove()" class="remove-btn">Xóa</button>
+        `;
+        container.appendChild(newSelect);
+      }
+
+      function pollProgress() {
+        fetch('/progress')
+          .then(response => response.text())
+          .then(data => {
+            document.getElementById('progress-bar').value = data;
+          });
+      }
+      function pollInProgress() {
+        fetch('/inProgress')
+          .then(response => {
+            if (!response.ok) throw new Error('Network response was not ok');
+            return response.text();
+          })
+          .then(data => {
+            const startBtn = document.getElementById('start-btn');
+            console.log(data, " ", data === "1");
+            if (data === "1") {
+              startBtn.disabled = true;
+              startBtn.textContent = "Đang giao hàng";
+            } else {
+              startBtn.disabled = false;
+              startBtn.textContent = "Bắt đầu";
+            }
+          })
+          .catch(error => {
+            console.error('Error polling inProgress:', error);
+            // Optionally re-enable button on error
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('start-btn').textContent = "Bắt đầu";
+          });
+      }
+
+      // Start polling after DOM is loaded
+      document.addEventListener('DOMContentLoaded', function() {
+        // Set a single interval for polling
+        setInterval(() => {
+          pollProgress();
+          pollInProgress();
+        }, 1000); // Unified polling interval (e.g., 1000ms)
+      
+      // Initial calls
+      pollProgress();
+      pollInProgress();
+    });
+    </script>
 </body>
 </html>
 )rawliteral";
